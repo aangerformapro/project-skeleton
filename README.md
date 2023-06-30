@@ -31,7 +31,8 @@ npm install
 
 ## Comment l'utiliser ?
 
-- Les sources `Javascript` sont dans le répertoire `src`
+- Les sources `php` sont dans le répertoire `src`
+- Les sources `Javascript` sont dans le répertoire `lib`
 - Les sources `sass` sont dans le répertoire `scss`
 - Les fichiers html et autres resources (images...) sont dans le répertoire `public`
 

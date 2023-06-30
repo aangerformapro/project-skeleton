@@ -29,7 +29,7 @@ const
         // indexes matches except if output has only one it will use it for all the inputs
         input: [
             //insert others there if needed
-            'src',
+            'lib',
 
         ],
         output: [
