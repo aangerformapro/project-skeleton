@@ -1,163 +1,313 @@
-// rollup.config.js
-import path from 'node:path';
+import path from 'node:path/posix';
 import fs from 'node:fs';
+import livereloadPlugin from 'rollup-plugin-livereload';
 import resolvePlugin from '@rollup/plugin-node-resolve';
 import commonjsPlugin from '@rollup/plugin-commonjs';
 import postcssPlugin from 'rollup-plugin-postcss';
 import terserPlugin from '@rollup/plugin-terser';
-// import sveltePlugin from 'rollup-plugin-svelte';
-// import sveltePreprocess from 'svelte-preprocess';
 import jsonPlugin from '@rollup/plugin-json';
 import delPlugin from 'rollup-plugin-delete';
 import nodePolyfillsPlugin from 'rollup-plugin-polyfill-node';
-import postcss from './postcss.config.cjs';
-
+import postcssImportPlugin from "postcss-import";
+import postcssCombinePlugin from "postcss-combine-media-query";
+import postcssPresetEnvPlugin from "postcss-preset-env";
+import cssnanoPlugin from "cssnano";
 
 const
-    // if rollup is not watching we are in production environment
-    prod = !process.env.ROLLUP_WATCH,
-    // file extensions to scan for
-    JS_EXTENSIONS = ['.js', '.mjs', '.cjs',],
-    // output file extension
-    OUTPUT_EXTENSION = '.js',
-    // output css extension: overridet this to use a namespace before .css
-    OUTPUT_CSS_EXTENSION = '.css',
-    // ignore files matched with those patterns
-    IGNORE_PATTERNS = [/^_/],
-
-    dirs = {
-        // indexes matches except if output has only one it will use it for all the inputs
-        input: [
-            //insert others there if needed
-            'lib',
-
+    defaults = {
+        prod: !process.env.ROLLUP_WATCH,
+        ext: ['.js', '.mjs', '.cjs'],
+        out: '.js',
+        ignore: [
+            '^_',
+            '^\\.',
         ],
-        output: [
-            // your dist dir(s)
-            'public/assets'
-        ],
+        formats: ['es'],
+        input: ['assets'],
+        output: ['public/build'],
+        watch: [],
+        livereload: true
     },
-    // if rollup used with -w, we trigger build when those folders are modified
-    watchFolders = [
-        ...dirs.input,
-        // watch sass files
-        'scss',
-        // watch deps
-        'modules'
+    instances = new Map();
 
-    ].filter(x => fs.existsSync(x)),
-    // Uncomment if using svelte
-    // sveltePluginConfig = {
-    //     preprocess: sveltePreprocess(),
-    //     emitCss: true,
-    //     compilerOptions: {
-    //         // can use dev tools in browser
-    //         dev: !prod,
-    //         accessors: true,
-    //         hydratable: true,
-    //     }
-    // },
-    loadPlugins = ({
-        name,
-        // input,
-        output,
-    } = {}) =>
+
+class RTools
+{
+
+    static loadConfig(file = 'rollup.json')
     {
+        let cfg;
 
+        if (!instances.has(file))
+        {
+            if (fs.existsSync(file))
+            {
+                cfg = new RTools({
+                    ...defaults,
+                    ...JSON.parse(fs.readFileSync(file, { encoding: 'utf-8' }))
+                });
+            }
+            else
+            {
+                cfg = new RTools(defaults);
+            }
+            instances.set(file, cfg);
+        }
+        return instances.get(file);
+    }
+
+    cfg = {};
+
+    #watch;
+
+    get isProd()
+    {
+        return this.cfg.prod;
+    }
+
+    get watch()
+    {
+        return this.#watch ??= [
+            ...this.cfg.input,
+            ...this.cfg.watch
+        ].filter(
+            dir => fs.existsSync(dir)
+        ).map(dir => !fs.lstatSync(dir).isDirectory() ? path.parse(dir).dir : dir);
+    }
+
+    constructor(config)
+    {
+        this.cfg = config ?? { ...defaults };
+        this.fixConfig(this.cfg);
+
+    }
+
+
+    fixConfig(cfg)
+    {
+        ['input', 'output', 'formats', 'watch', 'ext'].forEach(prop =>
+        {
+
+            if (false === cfg[prop])
+            {
+                cfg[prop] = [];
+            }
+
+            if (!Array.isArray(cfg[prop]))
+            {
+                cfg[prop] = [cfg[prop]];
+            }
+        });
+
+        if (typeof cfg.livereload === 'string')
+        {
+            cfg.livereload = [cfg.livereload];
+        }
+
+
+        if (cfg.livereload === true)
+        {
+            cfg.livereload = [...cfg.output];
+        }
+
+        else if (Array.isArray(cfg.livereload))
+        {
+            cfg.livereload.push(...cfg.output);
+        }
+    }
+
+
+    isJSFile(file)
+    {
+        return this.cfg.ext.some(
+            ext => file.toLowerCase().endsWith(ext)
+        );
+    }
+
+
+
+    isIgnored(file)
+    {
+        return this.cfg.ignore.some(
+            re => (
+                re instanceof RegExp ? re : new RegExp(re)
+            ).test(file.toLowerCase())
+        );
+    }
+
+
+    fileInfo({ file, input, outputDir })
+    {
+        const { name } = path.parse(file);
+        return {
+            name,
+            input,
+            output: path.join(outputDir, name + this.cfg.out),
+        };
+    }
+
+    fileList({ inputDir, outputDir } = {})
+    {
+        if (!fs.existsSync(inputDir))
+        {
+            return [];
+        }
+        if (!fs.lstatSync(inputDir).isDirectory())
+        {
+            if (!this.isJSFile(inputDir))
+            {
+                return [];
+            }
+
+            return [
+                this.fileInfo({
+                    input: inputDir,
+                    outputDir,
+                    file: path.parse(inputDir).base
+                }),
+            ];
+
+        }
+        return fs.readdirSync(inputDir)
+            .filter(
+                file => !this.isIgnored(file) && this.isJSFile(file)
+            )
+            .map(file => this.fileInfo({
+                input: path.join(inputDir, file),
+                file,
+                outputDir
+            }));
+    }
+
+    loadPlugins({ name, output } = {})
+    {
         const
-            plugins = [],
-            // { dir: inputdir } = path.parse(input),
-            { dir: outputdir } = path.parse(output);
+            { dir } = path.parse(output),
+            { isProd } = this,
+            plugins = [
+                jsonPlugin(),
+                postcssPlugin({
+                    plugins: [
+                        postcssImportPlugin(),
+                        !isProd && postcssCombinePlugin(),
+                        postcssPresetEnvPlugin({
+                            autoprefixer: {
+                                cascade: false,
+                            },
+                            features: {
+                                'custom-properties': true,
+                            },
+                        }),
+                        isProd && cssnanoPlugin({ preset: 'default' }),
+                    ],
+                    sourceMap: !isProd,
+                    extract: name + '.css',
+                }),
 
+                resolvePlugin({
+                    moduleDirectories: ['node_modules'],
+                    extensions: this.cfg.ext,
+                    browser: true,
+                }),
+                commonjsPlugin(),
+                nodePolyfillsPlugin(),
+            ];
 
-        // to be executed first
-        prod && plugins.push(
-            // remove map files in production mode
-            delPlugin({ targets: path.join(outputdir, '*.map') }),
-        );
-        // plugins available in prod and dev mode
-        plugins.push(
-            jsonPlugin(),
-            // sveltePlugin(sveltePluginConfig),
-            postcssPlugin({
-                // load plugins from postcss.config.cjs
-                plugins: postcss.plugins(prod),
-                sourceMap: !prod,
-                // prevents conflicting names with postcss
-                extract: name + OUTPUT_CSS_EXTENSION,
-            }),
-            // import node_modules like nothing
-            resolvePlugin({
-                moduleDirectories: ['node_modules'],
-                extensions: JS_EXTENSIONS,
-                browser: true,
-            }),
-            // Convert CommonJS modules to ES6+
-            commonjsPlugin(),
-            // using node modules in browser
-            nodePolyfillsPlugin(),
-        );
-
-        // minify js
-        prod && plugins.push(terserPlugin());
+        if (isProd)
+        {
+            plugins.unshift(delPlugin({
+                targets: path.join(dir, '*.map')
+            }));
+            plugins.push(terserPlugin());
+        } else
+        {
+            if (this.cfg.livereload)
+            {
+                plugins.push(livereloadPlugin({
+                    delay: 200,
+                    watch: this.cfg.livereload,
+                }));
+            }
+        }
 
         return plugins;
-    },
-    getFileList = (inputdir, outputdir) => fs.readdirSync(inputdir)
-        // check files
-        .filter(
-            file =>
-                // has one of js extensions
-                JS_EXTENSIONS.some(ext => file.endsWith(ext))
-                // file does not match an ignore pattern
-                && !IGNORE_PATTERNS.some(pattern => pattern.test(file))
-        )
-        // return file infos
-        .map(filename =>
+    }
+
+
+    outputFormat({ format, output, name } = {})
+    {
+
+        const result = {
+            format,
+            sourcemap: !this.isProd,
+        };
+        if (['es'].includes(format))
         {
-            const { name } = path.parse(filename);
             return {
-                input: path.join(inputdir, filename),
-                output: path.join(outputdir, name + OUTPUT_EXTENSION),
-                name,
-            };
-        }),
-    makeConfig = (fileList = []) => fileList.map(({
-        name,
-        input,
-        output
-    }) =>
-    ({
-        watch: {
-            exclude: 'node_modules/**',
-            include: watchFolders.map(x => path.join(x, '**')),
-        },
-        //prevents some build bugs with this
-        //as we are building for browser
-        context: 'globalThis',
-        input,
-        output: [
-            //for umd we need that config (just uncomment)
-            // {
-            //     format: 'umd',
-            //     sourcemap: !prod,
-            //     file: path.parse(output).dir + '/' + name + '.umd' + OUTPUT_EXTENSION,
-            //     name,
-            //     exports: 'named',
-            // },
-            {
-                format: 'es',
-                sourcemap: !prod,
                 file: output,
-            }
-        ],
+                inlineDynamicImports: true,
+                ...result
+            };
+        }
+        if (['iife'].includes(format))
+        {
+            return {
+                file: path.join(path.parse(output).dir, `${name}.${format}${this.cfg.out}`),
+                name,
+                ...result,
+            };
+        }
+        if (['umd'].includes(format))
+        {
+            return {
+                file: path.join(path.parse(output).dir, `${name}.${format}${this.cfg.out}`),
+                name,
+                exports: 'umd' === format ? 'named' : 'auto',
+                ...result,
+            };
+        }
+        throw new Error(`Invalid format ${format}`);
+    }
+    makeConfig(files = [])
+    {
+        return files.map(({
+            name,
+            input,
+            output
+        }) => ({
+            context: 'globalThis',
+            watch: {
+                exclude: 'node_modules/**',
+                include: this.watch.map(x => path.join(x, '**')),
+            },
+            input,
+            output: this.cfg.formats.map(
+                format => this.outputFormat({ format, output, name })
+            ),
+            plugins: this.loadPlugins({ name, output }),
+        }));
+    }
+    generateConfig()
+    {
+        return [].concat(
+            ...this.cfg.input.map(
+                (dir, index) =>
+                    this.makeConfig(
+                        this.fileList(
+                            {
+                                inputDir: dir,
+                                outputDir: this.cfg.output[index] ?? this.cfg.output[0]
+                            }
+                        )
+                    )
+            )
+        );
+    }
+}
 
-        plugins: loadPlugins({ name, output, input }),
-    }));
+
+const cfg = RTools.loadConfig().generateConfig();
+export default cfg;
 
 
 
-export default [].concat(...dirs.input.map(
-    (inputdir, index) =>
-        makeConfig(getFileList(inputdir, dirs.output[index] ?? dirs.output[0]))
-));

@@ -1,10 +1,12 @@
 {
     "verbose": true,
+    "ext": "php,html,js,css,scss,png,webp,jpg,json",
     "ignore": [
         "node_modules/"
     ],
     "watch": [
-        "./**/*",
-        "./public/**/*"
+        "./src/**/*",
+        "public/*.{html,php}",
+        "public/assets/**/*"
     ]
 }

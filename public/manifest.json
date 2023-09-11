@@ -1,0 +1,28 @@
+{
+    "name": "Votre nouvelle Application",
+    "short_name": "newapp",
+    "icons": [
+        {
+            "src": "assets/pictures/favicon.png",
+            "type": "image/png",
+            "sizes": "32x32",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "assets/pictures/logo.png",
+            "type": "image/png",
+            "sizes": "512x512",
+            "purpose": "any maskable"
+        }
+    ],
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#FFFFFF",
+    "theme_color": "#333333",
+    "serviceworker": {
+        "scope": "/",
+        "src": "service-worker.js",
+        "use_cache": false
+    }
+}

@@ -1,0 +1,9 @@
+{
+    "input": [
+        "assets/app.js"
+    ],
+    "output": [
+        "public/build"
+    ],
+    "livereload": true
+}

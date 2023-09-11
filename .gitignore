@@ -1,6 +1,9 @@
 node_modules
 vendor
 *.lock
-*-lock.json
+*-lock.*
 dist
 .env
+.env.local
+public/build
+.idea

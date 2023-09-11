@@ -106,9 +106,5 @@
     "intelephense.diagnostics.undefinedTypes": false,
     "intelephense.trace.server": "messages",
     "intelephense.telemetry.enabled": false,
-    "editor.fontSize": 15.5,
     "vscode-edge-devtools.webhint": false,
-    "markdown.preview.fontSize": 16,
-    "phpTools.language": "en",
-    "telemetry.telemetryLevel": "off",
 }
